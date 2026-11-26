@@ -15,20 +15,7 @@
     <title>奶娃拳场 · NAIWA BELLY BEAT</title>
     <link rel="icon" href="./assets/characters/naiwa-guard.webp" />
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="preload" as="image" type="image/webp" href="./assets/characters/mini-base.webp" />
-    <link rel="preload" as="image" type="image/webp" href="./assets/characters/mini-poke-v3.webp" />
-    <link rel="preload" as="image" type="image/webp" href="./assets/characters/mini-kick-v3.webp" />
-    <link rel="preload" as="image" type="image/webp" href="./assets/characters/mini-heart-v3.webp" />
-    <link rel="preload" as="image" type="image/webp" href="./assets/characters/mini-ko-v3.webp" />
-    <link rel="preload" as="image" type="image/png" href="./assets/characters/divine-aura-v3.png" />
-    <link rel="preload" as="image" type="image/jpeg" href="./assets/characters/naiwa-ultimate-bg-v1.jpg?v=48" />
-    <link rel="preload" as="image" type="image/jpeg" href="./assets/characters/divine-skill-1.jpg" />
-    <link rel="preload" as="image" type="image/jpeg" href="./assets/characters/divine-skill-2.jpg" />
-    <link rel="preload" as="image" type="image/jpeg" href="./assets/characters/divine-skill-3.jpg" />
-    <link rel="preload" as="image" type="image/jpeg" href="./assets/characters/divine-skill-4.jpg" />
-    <link rel="preload" as="image" type="image/jpeg" href="./assets/characters/divine-ultimate.jpg" />
-    <link rel="preload" as="image" type="image/jpeg" href="./assets/characters/divine-finisher.jpg" />
-    <link rel="stylesheet" href="./styles.css?v=20261126-118" />
+    <link rel="stylesheet" href="./styles.css?v=20261126-120" />
   </head>
   <body>
     <div class="page">
@@ -67,35 +54,35 @@
         <audio
           id="ultimateAudio"
           src="./assets/audio/naiwa-ultimate.mp3"
-          preload="auto"
+          preload="none"
           playsinline
           aria-hidden="true"
         ></audio>
         <audio
           id="miniUltimateAudio"
           src="./assets/audio/mini-holy.mp3"
-          preload="auto"
+          preload="none"
           playsinline
           aria-hidden="true"
         ></audio>
     <audio
       id="divineUltimateAudio"
       src="./assets/audio/divine-ultimate.mp3"
-      preload="auto"
+      preload="none"
       playsinline
       aria-hidden="true"
     ></audio>
     <audio
       id="matchMusicAudio"
-      src="./assets/audio/match-bgm.mp3"
-      preload="metadata"
+      src="./assets/audio/match-bgm-lite.ogg"
+      preload="auto"
       playsinline
       aria-hidden="true"
     ></audio>
         <audio
           id="koAnthemAudio"
           src="./assets/audio/finisher-anthem.mp3"
-          preload="auto"
+          preload="none"
           playsinline
           aria-hidden="true"
         ></audio>
@@ -330,7 +317,7 @@
               title="隐藏形态：濒死致命一击时，满奶气按 J 涅槃重生"
             >
               <span class="divine-silhouette">
-                <img src="./assets/characters/divine-aura-v3.png" alt="" />
+                <img src="./assets/characters/divine-aura-silhouette.png" alt="" loading="lazy" decoding="async" />
                 <svg class="mystery-mark mystery-mark-small" viewBox="0 0 100 122" aria-hidden="true">
                   <path d="M20 36C20 15 34 3 53 3c20 0 33 13 33 31 0 16-9 26-24 35-10 6-13 11-13 21v4H28v-7c0-17 8-27 23-36 10-6 14-10 14-17 0-8-6-14-15-14-9 0-14 6-14 16H20Z" />
                   <rect x="36" y="104" width="23" height="17" rx="6" />
@@ -377,7 +364,7 @@
             <button class="hidden-character-close" id="hiddenCharacterClose" type="button" aria-label="关闭隐藏角色介绍">×</button>
             <span>SEALED ENTITY · FILE ???</span>
             <div class="hidden-character-figure">
-              <img src="./assets/characters/divine-aura-v3.png" alt="" />
+              <img src="./assets/characters/divine-aura-silhouette.png" alt="" loading="lazy" decoding="async" />
               <svg class="mystery-mark" viewBox="0 0 100 122" aria-hidden="true">
                 <path d="M20 36C20 15 34 3 53 3c20 0 33 13 33 31 0 16-9 26-24 35-10 6-13 11-13 21v4H28v-7c0-17 8-27 23-36 10-6 14-10 14-17 0-8-6-14-15-14-9 0-14 6-14 16H20Z" />
                 <rect x="36" y="104" width="23" height="17" rx="6" />
@@ -403,7 +390,7 @@
           </div>
           <div class="ko-calm-stage">
             <span class="ko-calm-halo" aria-hidden="true"></span>
-            <img id="koFinisherImage" src="./assets/characters/naiwa-calm.webp" alt="平静站立的奶娃" />
+            <img id="koFinisherImage" src="./assets/characters/naiwa-calm.webp" alt="平静站立的奶娃" loading="lazy" decoding="async" />
             <i class="ko-tear tear-a" aria-hidden="true"></i>
             <i class="ko-tear tear-b" aria-hidden="true"></i>
             <i class="ko-tear tear-c" aria-hidden="true"></i>
@@ -423,17 +410,21 @@
           </div>
           <div class="holy-poster">
             <span class="holy-halo" aria-hidden="true"></span>
-            <img id="holyUltimateMiniImage" src="./assets/characters/mini-holy.webp" alt="小奶娃在圣光中降临" />
+            <img id="holyUltimateMiniImage" src="./assets/characters/mini-holy.webp" alt="小奶娃在圣光中降临" loading="lazy" decoding="async" />
             <img
               id="holyUltimateNaiwaImage"
               src="./assets/characters/naiwa-ultimate-bg-v1.jpg?v=48"
               alt="奶娃捧腹大笑蓄力"
+              loading="lazy"
+              decoding="async"
               hidden
             />
             <img
               id="holyUltimateDivineImage"
               src="./assets/characters/divine-ultimate.jpg"
               alt="神-奶娃悬浮于天火之中"
+              loading="lazy"
+              decoding="async"
               hidden
             />
           </div>
@@ -443,7 +434,7 @@
 
         <section class="divine-skill-cast" id="divineSkillCast" hidden aria-live="polite">
           <div class="divine-skill-cast-shade" aria-hidden="true"></div>
-          <img id="divineSkillCastImage" src="./assets/characters/divine-skill-1.jpg" alt="" />
+          <img id="divineSkillCastImage" src="./assets/characters/divine-skill-1.jpg" alt="" loading="lazy" decoding="async" />
           <div class="divine-skill-cast-caption">
             <span>DIVINE NAIWA</span>
             <strong id="divineSkillCastTitle">焚心印</strong>
@@ -463,7 +454,7 @@
         <section class="divine-transition" id="divineTransition" hidden aria-live="assertive">
           <video
             id="divineTransitionVideo"
-            src="./assets/video/divine-rebirth.mp4"
+            src="./assets/video/divine-rebirth-lite.mp4"
             preload="metadata"
             playsinline
             aria-label="神-奶娃涅槃重生转场"
@@ -598,6 +589,6 @@
       </footer>
     </div>
 
-    <script src="./game.js?v=20261126-118"></script>
+    <script src="./game.js?v=20261126-120"></script>
   </body>
 </html>

@@ -173,7 +173,7 @@
     miniPoke: "./assets/characters/mini-poke-v3.webp",
     miniKick: "./assets/characters/mini-kick-v3.webp",
     miniHeart: "./assets/characters/mini-heart-v3.webp",
-    divineAura: "./assets/characters/divine-aura-v3.png",
+    divineAura: "./assets/characters/divine-aura-lite.png",
   };
 
   const CHARACTER_CONFIG = {
@@ -1587,6 +1587,7 @@
       ui.matchMusicAudio.muted = !audio.enabled;
       ui.matchMusicAudio.loop = true;
       ui.matchMusicAudio.volume = 0.12;
+      ui.matchMusicAudio.load();
       ui.koAnthemAudio.muted = !audio.enabled;
       ui.divineTransitionVideo.muted = !audio.enabled;
       this.resize();
@@ -2479,8 +2480,6 @@
         if (this.selectedCharacter === "naiwa") {
           ui.ultimateAudio.load();
           ui.divineUltimateAudio.load();
-          ui.divineTransitionVideo.preload = "auto";
-          ui.divineTransitionVideo.load();
         } else {
           ui.miniUltimateAudio.load();
         }
@@ -2953,6 +2952,7 @@
       if (this.selectedCharacter !== "naiwa" || this.divineForm) return;
       if (this.rebirthPending || this.divineTransitionActive || this.divineRebirthUsed) return;
       if (ui.divineTransitionVideo.readyState < 2) ui.divineTransitionVideo.load();
+      void this.ensureDivineAura().catch(() => {});
       this.clearRebirthState();
       this.keys.clear();
       target.blocking = false;
@@ -6580,7 +6580,7 @@
     ui.startButtonLabel.textContent = "一口奶气，正式开打";
     new NaiwaGame();
 
-    const entries = Object.entries(assetSources);
+    const entries = Object.entries(assetSources).filter(([key]) => key !== "divineAura");
     void Promise.allSettled(
       entries.map(async ([key, source]) => [key, await loadImage(source)]),
     ).then((loaded) => {
@@ -6591,6 +6591,15 @@
         }
       });
     });
+    const preloadDivineAura = () => {
+      const game = window.__NAIWA_GAME__;
+      if (game) void game.ensureDivineAura().catch(() => {});
+    };
+    if ("requestIdleCallback" in window) {
+      window.requestIdleCallback(preloadDivineAura, { timeout: 4500 });
+    } else {
+      window.setTimeout(preloadDivineAura, 2800);
+    }
   }
 
   boot();
