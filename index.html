@@ -1,0 +1,603 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#151521" />
+    <meta name="screen-orientation" content="landscape" />
+    <meta name="x5-orientation" content="landscape" />
+    <meta name="x5-fullscreen" content="true" />
+    <meta name="full-screen" content="yes" />
+    <meta
+      name="description"
+      content="奶娃拳场：一个可以直接在浏览器中游玩的三局两胜奶娃格斗 Demo。"
+    />
+    <title>奶娃拳场 · NAIWA BELLY BEAT</title>
+    <link rel="icon" href="./assets/characters/naiwa-guard.webp" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="preload" as="image" type="image/webp" href="./assets/characters/mini-base.webp" />
+    <link rel="preload" as="image" type="image/webp" href="./assets/characters/mini-poke-v3.webp" />
+    <link rel="preload" as="image" type="image/webp" href="./assets/characters/mini-kick-v3.webp" />
+    <link rel="preload" as="image" type="image/webp" href="./assets/characters/mini-heart-v3.webp" />
+    <link rel="preload" as="image" type="image/webp" href="./assets/characters/mini-ko-v3.webp" />
+    <link rel="preload" as="image" type="image/png" href="./assets/characters/divine-aura-v3.png" />
+    <link rel="preload" as="image" type="image/jpeg" href="./assets/characters/naiwa-ultimate-bg-v1.jpg?v=48" />
+    <link rel="preload" as="image" type="image/jpeg" href="./assets/characters/divine-skill-1.jpg" />
+    <link rel="preload" as="image" type="image/jpeg" href="./assets/characters/divine-skill-2.jpg" />
+    <link rel="preload" as="image" type="image/jpeg" href="./assets/characters/divine-skill-3.jpg" />
+    <link rel="preload" as="image" type="image/jpeg" href="./assets/characters/divine-skill-4.jpg" />
+    <link rel="preload" as="image" type="image/jpeg" href="./assets/characters/divine-ultimate.jpg" />
+    <link rel="preload" as="image" type="image/jpeg" href="./assets/characters/divine-finisher.jpg" />
+    <link rel="stylesheet" href="./styles.css?v=20261126-118" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="page-header">
+        <a class="brand" href="#" aria-label="奶娃拳场">
+          <span class="brand-mark">奶</span>
+          <span>
+            <strong>奶娃拳场</strong>
+            <small>NAIWA BELLY BEAT · H5 DEMO</small>
+          </span>
+        </a>
+        <div class="header-actions">
+          <button
+            class="icon-button pause-button"
+            id="pauseButton"
+            type="button"
+            aria-label="暂停游戏"
+            disabled
+          >
+            <span id="pauseButtonLabel">暂停</span>
+            <kbd>P</kbd>
+          </button>
+          <button class="icon-button" id="helpButton" type="button" aria-label="查看操作说明">
+            <span>操作</span>
+            <kbd>?</kbd>
+          </button>
+          <button class="icon-button" id="soundButton" type="button" aria-label="关闭声音">
+            <span id="soundLabel">声音开</span>
+            <span id="soundIcon" aria-hidden="true">♪</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="game-frame" id="gameFrame">
+        <canvas id="gameCanvas" width="1440" height="810" aria-label="奶娃拳场游戏画面"></canvas>
+        <audio
+          id="ultimateAudio"
+          src="./assets/audio/naiwa-ultimate.mp3"
+          preload="auto"
+          playsinline
+          aria-hidden="true"
+        ></audio>
+        <audio
+          id="miniUltimateAudio"
+          src="./assets/audio/mini-holy.mp3"
+          preload="auto"
+          playsinline
+          aria-hidden="true"
+        ></audio>
+    <audio
+      id="divineUltimateAudio"
+      src="./assets/audio/divine-ultimate.mp3"
+      preload="auto"
+      playsinline
+      aria-hidden="true"
+    ></audio>
+    <audio
+      id="matchMusicAudio"
+      src="./assets/audio/match-bgm.mp3"
+      preload="metadata"
+      playsinline
+      aria-hidden="true"
+    ></audio>
+        <audio
+          id="koAnthemAudio"
+          src="./assets/audio/finisher-anthem.mp3"
+          preload="auto"
+          playsinline
+          aria-hidden="true"
+        ></audio>
+
+        <div class="screen-grain" aria-hidden="true"></div>
+        <div class="screen-vignette" aria-hidden="true"></div>
+        <div class="impact-overlay" id="impactOverlay" aria-hidden="true"></div>
+
+        <section class="hud" id="hud" aria-label="对战信息">
+          <div class="fighter-hud player-hud">
+            <div class="portrait">
+              <img id="playerPortrait" src="./assets/characters/naiwa-guard.webp" alt="" />
+              <span class="portrait-tag">P1</span>
+            </div>
+            <div class="fighter-info">
+              <div class="fighter-name-row">
+                <strong id="playerName">奶娃</strong>
+                <span id="playerNameEn">NAIWA</span>
+              </div>
+              <div class="health-track">
+                <div class="health-lag" id="playerHealthLag"></div>
+                <div class="health-fill" id="playerHealth"></div>
+                <span class="health-shine"></span>
+              </div>
+              <div class="meter-row">
+                <span>奶气</span>
+                <div class="meter-track">
+                  <div class="meter-fill" id="playerMeter"></div>
+                  <i></i><i></i><i></i>
+                </div>
+                <b id="playerMeterText">0</b>
+              </div>
+            </div>
+          </div>
+
+          <div class="round-center">
+            <div class="round-label" id="roundLabel">第一回合</div>
+            <div class="timer-shell">
+              <span class="timer-dot"></span>
+              <strong id="timer">60</strong>
+            </div>
+            <div class="round-score" aria-label="局分">
+              <span id="playerRound1"></span>
+              <span id="playerRound2"></span>
+              <span id="playerRound3"></span>
+              <em>BO3</em>
+              <span id="enemyRound3"></span>
+              <span id="enemyRound2"></span>
+              <span id="enemyRound1"></span>
+            </div>
+          </div>
+
+          <div class="fighter-hud enemy-hud">
+            <div class="fighter-info">
+              <div class="fighter-name-row">
+                <span id="enemyDifficultyTag">AI · 简单</span>
+                <strong id="enemyName">苦瓜奶霸</strong>
+              </div>
+              <div class="health-track">
+                <div class="health-lag" id="enemyHealthLag"></div>
+                <div class="health-fill" id="enemyHealth"></div>
+                <span class="health-shine"></span>
+              </div>
+              <div class="meter-row">
+                <b id="enemyMeterText">0</b>
+                <div class="meter-track">
+                  <div class="meter-fill" id="enemyMeter"></div>
+                  <i></i><i></i><i></i>
+                </div>
+                <span>奶气</span>
+              </div>
+            </div>
+            <div class="portrait portrait-enemy">
+              <img src="./assets/characters/naiwa-roar-cutin.webp" alt="" />
+              <span class="portrait-tag">CPU</span>
+            </div>
+          </div>
+        </section>
+
+        <div class="combo-callout" id="comboCallout" aria-live="polite">
+          <strong>2</strong>
+          <span>连击！</span>
+        </div>
+
+        <div class="center-callout" id="centerCallout" aria-live="assertive"></div>
+
+        <div class="ko-badge" id="koBadge" aria-live="assertive">
+          <small>BELLY DOWN</small>
+          <strong>K.O.</strong>
+        </div>
+
+        <section class="skill-dock" id="skillDock" aria-label="技能栏">
+          <article class="skill-card" data-key="f" data-skill="light">
+            <div class="skill-art">
+                <img id="enemyPortrait" src="./assets/characters/naiwa-guard.webp" alt="" />
+              <kbd>F</kbd>
+            </div>
+            <div>
+              <strong>拍肚皮</strong>
+              <span>快速轻击</span>
+            </div>
+            <i class="ready-pip"></i>
+          </article>
+          <article class="skill-card" data-key="c" data-skill="heavy">
+            <div class="skill-art skill-art-wide">
+              <img src="./assets/characters/naiwa-palm.webp" alt="" />
+              <kbd>C</kbd>
+            </div>
+            <div>
+              <strong>肚皮弹</strong>
+              <span>重击 · 击飞</span>
+            </div>
+            <i class="ready-pip"></i>
+          </article>
+          <article class="skill-card" data-key="g" data-skill="rush">
+            <div class="skill-art">
+              <img src="./assets/characters/naiwa-fist.webp" alt="" />
+              <kbd>G</kbd>
+            </div>
+            <div>
+              <strong>奶拳突进</strong>
+              <span>前冲 · 正面击退</span>
+            </div>
+            <i class="ready-pip"></i>
+          </article>
+          <article class="skill-card" data-key="t" data-skill="heal">
+            <div class="skill-art">
+              <img src="./assets/characters/naiwa-guard.webp" alt="" />
+              <kbd>T</kbd>
+            </div>
+            <div>
+              <strong>奶气回春</strong>
+              <span>25 奶气 · 回复 60</span>
+            </div>
+            <i class="ready-pip"></i>
+          </article>
+          <article class="skill-card ultimate-card" data-key="b" data-skill="ultimate">
+            <div class="skill-art skill-art-roar">
+              <img src="./assets/characters/naiwa-roar-cutin.webp" alt="" />
+              <kbd>B</kbd>
+            </div>
+            <div>
+              <strong>捧腹大笑</strong>
+              <span>满气 · 四段笑浪</span>
+            </div>
+            <i class="ready-pip"></i>
+          </article>
+        </section>
+
+        <div class="control-hint">
+          <span><kbd>A</kbd><kbd>D</kbd> 移动</span>
+          <span><kbd>SPACE</kbd> 跳跃</span>
+          <span><kbd>G</kbd> 冲拳</span>
+          <span><kbd>Z</kbd> 格挡 · 完美判定</span>
+          <span><kbd>J</kbd> 经典奶娃涅槃</span>
+          <span><kbd>P</kbd> 暂停</span>
+        </div>
+
+        <section class="start-screen" id="startScreen" aria-labelledby="gameTitle">
+          <div class="start-deco deco-1" aria-hidden="true">齁</div>
+          <div class="start-deco deco-2" aria-hidden="true">哈</div>
+          <div class="start-content">
+            <div class="eyebrow"><span></span> 一口奶气 · 打穿这条街</div>
+            <h1 id="gameTitle">
+              <span class="title-small">NAIWA BELLY BEAT</span>
+              <span class="title-main">奶娃<em>拳场</em></span>
+            </h1>
+            <p class="start-copy">
+              三局两胜，六十秒定胜负。拍肚、弹飞、奶气回春，<br />
+              再用捧腹大笑把苦瓜奶霸送出擂台。
+            </p>
+            <div class="start-actions-row">
+              <button class="start-button" id="startButton" type="button" disabled>
+                <span class="start-button-copy">
+                  <i>开始对局</i>
+                  <span id="startButtonLabel">正在热奶...</span>
+                </span>
+                <kbd>ENTER</kbd>
+              </button>
+              <div class="difficulty-picker" id="difficultyPicker" role="group" aria-label="选择电脑难度">
+                <span class="difficulty-label">电脑难度</span>
+                <div class="difficulty-options">
+                  <button class="is-selected" type="button" data-difficulty="easy" aria-pressed="true">简单</button>
+                  <button type="button" data-difficulty="hard" aria-pressed="false">困难</button>
+                  <button type="button" data-difficulty="hell" aria-pressed="false">地狱</button>
+                </div>
+              </div>
+            </div>
+            <div class="start-meta">
+              <div><strong>01</strong><span>单人 VS AI</span></div>
+              <div><strong>60″</strong><span>每回合</span></div>
+              <div><strong>BO3</strong><span>三局两胜</span></div>
+            </div>
+            <button class="online-entry" id="onlineButton" type="button" disabled>
+              <span>
+                <strong>双人对战联机</strong>
+                <small>创建房间或输入好友的房间码</small>
+              </span>
+              <i>ONLINE</i>
+            </button>
+            <button class="lobby-music-button" id="lobbyMusicButton" type="button">
+              <span class="music-disc" aria-hidden="true">♪</span>
+              <span>
+                <strong>彩虹大厅 BGM</strong>
+                <small>原创温柔循环 · 点击播放</small>
+              </span>
+              <i>OFF</i>
+            </button>
+          </div>
+          <div class="hero-stack" aria-hidden="true">
+            <div class="halo"></div>
+            <span class="hero-caption">“奶到我，算你赢。”</span>
+            <img class="hero-pose" id="heroPose" src="./assets/characters/naiwa-guard.webp" alt="" fetchpriority="high" />
+            <div class="hero-shadow"></div>
+          </div>
+          <div class="character-picker" id="characterPicker" role="group" aria-label="选择角色">
+            <span class="picker-label">选择角色</span>
+            <button class="is-selected" type="button" data-character="naiwa" aria-pressed="true">
+              <img src="./assets/characters/naiwa-guard.webp" alt="" />
+              <span><strong>奶娃</strong><small>经典</small></span>
+            </button>
+            <button type="button" data-character="mini" aria-pressed="false">
+              <img src="./assets/characters/mini-base.webp" alt="" fetchpriority="high" />
+              <span><strong>小奶娃</strong><small>神圣</small></span>
+            </button>
+            <button
+              class="divine-hidden-slot"
+              id="hiddenCharacterButton"
+              type="button"
+              aria-label="查看隐藏形态，神-奶娃"
+              aria-haspopup="dialog"
+              title="隐藏形态：濒死致命一击时，满奶气按 J 涅槃重生"
+            >
+              <span class="divine-silhouette">
+                <img src="./assets/characters/divine-aura-v3.png" alt="" />
+                <svg class="mystery-mark mystery-mark-small" viewBox="0 0 100 122" aria-hidden="true">
+                  <path d="M20 36C20 15 34 3 53 3c20 0 33 13 33 31 0 16-9 26-24 35-10 6-13 11-13 21v4H28v-7c0-17 8-27 23-36 10-6 14-10 14-17 0-8-6-14-15-14-9 0-14 6-14 16H20Z" />
+                  <rect x="36" y="104" width="23" height="17" rx="6" />
+                </svg>
+              </span>
+              <span><strong>？？？</strong><small>隐藏</small></span>
+            </button>
+          </div>
+        </section>
+
+        <section class="round-overlay" id="roundOverlay" aria-live="assertive" hidden>
+          <div class="round-card">
+            <span class="round-kicker" id="roundKicker">ROUND 1</span>
+            <h2 id="roundWinner">奶娃胜！</h2>
+            <p id="roundReason">一记肚子，稳稳拿下一局。</p>
+            <div class="round-victory-pose" id="roundVictoryPose"></div>
+            <button id="nextRoundButton" type="button">
+              <span id="nextRoundLabel">下一回合</span>
+              <kbd>ENTER</kbd>
+            </button>
+          </div>
+        </section>
+
+        <section class="final-overlay" id="finalOverlay" aria-live="assertive" hidden>
+          <div class="final-rays" aria-hidden="true"></div>
+          <div class="final-card">
+            <span class="round-kicker">MATCH COMPLETE</span>
+            <p class="final-pretitle" id="finalPretitle">本场冠军</p>
+            <h2 id="finalWinner">奶娃</h2>
+            <p id="finalScore">2 : 1</p>
+            <div class="final-quote" id="finalQuote">今日份的奶气，全场第一。</div>
+            <div class="overlay-button-row">
+              <button id="rematchButton" type="button">
+                再来一局
+                <kbd>ENTER</kbd>
+              </button>
+              <button class="secondary-button" id="changeCharacterButton" type="button">更换角色</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="hidden-character-modal" id="hiddenCharacterModal" role="dialog" aria-modal="true" aria-labelledby="hiddenCharacterTitle" hidden>
+          <div class="hidden-character-card">
+            <button class="hidden-character-close" id="hiddenCharacterClose" type="button" aria-label="关闭隐藏角色介绍">×</button>
+            <span>SEALED ENTITY · FILE ???</span>
+            <div class="hidden-character-figure">
+              <img src="./assets/characters/divine-aura-v3.png" alt="" />
+              <svg class="mystery-mark" viewBox="0 0 100 122" aria-hidden="true">
+                <path d="M20 36C20 15 34 3 53 3c20 0 33 13 33 31 0 16-9 26-24 35-10 6-13 11-13 21v4H28v-7c0-17 8-27 23-36 10-6 14-10 14-17 0-8-6-14-15-14-9 0-14 6-14 16H20Z" />
+                <rect x="36" y="104" width="23" height="17" rx="6" />
+              </svg>
+            </div>
+            <h2 id="hiddenCharacterTitle">？？？</h2>
+            <strong>？？？</strong>
+            <p>轮廓已经显现，样貌仍被天火遮蔽。</p>
+            <small>仅经典奶娃可触发：濒死时受到致命一击且奶气满格，按 J 涅槃重生。神-奶娃在场时，敌方完美格挡概率降低 20%。</small>
+          </div>
+        </section>
+
+        <section class="ko-finisher" id="koFinisher" aria-live="assertive" hidden>
+          <div class="ko-finisher-noise" aria-hidden="true"></div>
+          <div class="ko-finisher-ring" aria-hidden="true"></div>
+          <div class="ko-rain" aria-hidden="true">
+            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
+          <div class="ko-finisher-copy">
+            <span class="ko-finisher-kicker" id="koFinisherKicker">LAST BELL · 最后一击</span>
+            <p id="koFinisherLine1">成为一只平静的奶娃</p>
+            <strong id="koFinisherLine2">要流尽多少眼泪</strong>
+          </div>
+          <div class="ko-calm-stage">
+            <span class="ko-calm-halo" aria-hidden="true"></span>
+            <img id="koFinisherImage" src="./assets/characters/naiwa-calm.webp" alt="平静站立的奶娃" />
+            <i class="ko-tear tear-a" aria-hidden="true"></i>
+            <i class="ko-tear tear-b" aria-hidden="true"></i>
+            <i class="ko-tear tear-c" aria-hidden="true"></i>
+          </div>
+          <div class="ko-finisher-mark" aria-hidden="true">K.O.</div>
+          <button class="ko-finisher-skip" id="koFinisherSkip" type="button">跳过终结画面</button>
+        </section>
+
+        <section class="holy-ultimate" id="holyUltimate" hidden aria-live="assertive">
+          <div class="holy-rays" aria-hidden="true"></div>
+          <div class="holy-cloud cloud-a" aria-hidden="true"></div>
+          <div class="holy-cloud cloud-b" aria-hidden="true"></div>
+          <div class="holy-copy">
+            <span id="holyUltimateKicker">MINI NAIWA · DIVINE ARRIVAL</span>
+            <h2 id="holyUltimateTitle">奶娃神圣降临</h2>
+            <p id="holyUltimateLine">圣光落下，只为一击。</p>
+          </div>
+          <div class="holy-poster">
+            <span class="holy-halo" aria-hidden="true"></span>
+            <img id="holyUltimateMiniImage" src="./assets/characters/mini-holy.webp" alt="小奶娃在圣光中降临" />
+            <img
+              id="holyUltimateNaiwaImage"
+              src="./assets/characters/naiwa-ultimate-bg-v1.jpg?v=48"
+              alt="奶娃捧腹大笑蓄力"
+              hidden
+            />
+            <img
+              id="holyUltimateDivineImage"
+              src="./assets/characters/divine-ultimate.jpg"
+              alt="神-奶娃悬浮于天火之中"
+              hidden
+            />
+          </div>
+          <strong class="holy-hit-word" id="holyUltimateHitWord">圣奶一击</strong>
+          <button class="holy-skip" id="holySkipButton" type="button">跳过演出 <kbd>B</kbd></button>
+        </section>
+
+        <section class="divine-skill-cast" id="divineSkillCast" hidden aria-live="polite">
+          <div class="divine-skill-cast-shade" aria-hidden="true"></div>
+          <img id="divineSkillCastImage" src="./assets/characters/divine-skill-1.jpg" alt="" />
+          <div class="divine-skill-cast-caption">
+            <span>DIVINE NAIWA</span>
+            <strong id="divineSkillCastTitle">焚心印</strong>
+          </div>
+        </section>
+
+        <section class="rebirth-prompt" id="rebirthPrompt" hidden aria-live="assertive">
+          <div class="rebirth-card">
+            <span>完美格挡 · PERFECT GUARD</span>
+            <strong>致命一击</strong>
+            <p>满奶气护体 · 在最后一刻按下</p>
+            <div class="rebirth-key"><kbd>J</kbd><b>涅槃重生</b></div>
+            <i class="rebirth-timer"><span></span></i>
+          </div>
+        </section>
+
+        <section class="divine-transition" id="divineTransition" hidden aria-live="assertive">
+          <video
+            id="divineTransitionVideo"
+            src="./assets/video/divine-rebirth.mp4"
+            preload="metadata"
+            playsinline
+            aria-label="神-奶娃涅槃重生转场"
+          ></video>
+          <div class="divine-transition-vignette" aria-hidden="true"></div>
+          <div class="divine-transition-caption">
+            <span>REBIRTH · DIVINE DESCENT</span>
+            <strong>涅槃 · 神临</strong>
+          </div>
+          <div class="divine-transition-loading">天火正在苏醒...</div>
+        </section>
+
+        <section class="pause-overlay" id="pauseOverlay" hidden>
+          <div>
+            <span>TAKE A BREATH</span>
+            <h2>先歇口气</h2>
+            <p>奶娃也需要喘一下。</p>
+            <div class="overlay-button-row">
+              <button id="resumeButton" type="button">继续打 <kbd>P</kbd></button>
+              <button class="secondary-button" id="returnLobbyButton" type="button">返回大厅</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="online-panel" id="onlinePanel" hidden aria-live="polite">
+          <div class="online-card">
+            <button class="online-close" id="onlineClose" type="button" aria-label="关闭联机窗口">×</button>
+            <span class="help-kicker">ONLINE VERSUS</span>
+            <h2>双人对战联机</h2>
+            <p class="online-note">双方可分别选择奶娃或小奶娃；神-奶娃仍需经典奶娃满气涅槃获得。双方都能看到对方动作、飞行道具和命中特效。</p>
+            <div class="online-character-picker" id="onlineCharacterPicker" role="group" aria-label="选择联机角色">
+              <span>你的联机角色</span>
+              <div>
+                <button class="is-selected" type="button" data-online-character="naiwa" aria-pressed="true">奶娃</button>
+                <button type="button" data-online-character="mini" aria-pressed="false">小奶娃</button>
+              </div>
+            </div>
+            <div class="online-actions">
+              <button id="createRoomButton" type="button">创建房间</button>
+              <div class="online-join-row">
+                <input id="roomCodeInput" type="text" maxlength="6" autocomplete="off" placeholder="输入房间码" />
+                <button id="joinRoomButton" type="button">加入房间</button>
+              </div>
+            </div>
+            <div class="online-room-code" id="onlineRoomCode" hidden>
+              <span>房间码</span>
+              <strong id="onlineRoomCodeText">-----</strong>
+              <button id="copyRoomCodeButton" type="button">复制</button>
+            </div>
+            <p class="online-status" id="onlineStatus">等待创建或加入房间。</p>
+          </div>
+        </section>
+
+        <aside class="help-panel" id="helpPanel" hidden>
+          <button class="help-close" id="helpClose" type="button" aria-label="关闭操作说明">×</button>
+          <span class="help-kicker">HOW TO PLAY</span>
+          <h2>角色操作手册</h2>
+          <div class="help-grid">
+            <div><kbd>A</kbd><kbd>D</kbd><strong>左右移动</strong></div>
+            <div><kbd>SPACE</kbd><strong>跳跃</strong></div>
+            <div><kbd>Z</kbd><strong>按住格挡 · 敌招起手瞬间按下触发完美格挡</strong></div>
+            <div><kbd>J</kbd><strong>濒死神迹 · 仅经典奶娃可用；小奶娃没有涅槃机制</strong></div>
+          </div>
+          <h3 class="help-section-title">角色技能</h3>
+          <div class="help-character-grid">
+            <article class="help-character-card">
+              <header><strong>奶娃</strong><span>经典形态</span></header>
+              <ul>
+                <li><kbd>F</kbd><span><b>拍肚皮</b> · 快速轻击</span></li>
+                <li><kbd>C</kbd><span><b>肚皮弹</b> · 重击击飞</span></li>
+                <li><kbd>G</kbd><span><b>奶拳突进</b> · 前冲击退</span></li>
+                <li><kbd>T</kbd><span><b>奶气回春</b> · 消耗 25 气回血</span></li>
+                <li><kbd>B</kbd><span><b>捧腹大笑</b> · 满气四段笑浪</span></li>
+              </ul>
+            </article>
+            <article class="help-character-card help-character-card--mini">
+              <header><strong>小奶娃</strong><span>神圣形态 · 无涅槃</span></header>
+              <ul>
+                <li><kbd>F</kbd><span><b>奶指戳戳</b> · 快速短距离攻击</span></li>
+                <li><kbd>C</kbd><span><b>奶娃飞踢</b> · 重击踢飞</span></li>
+                <li><kbd>G</kbd><span><b>爱心奶波</b> · 远程爱心冲击</span></li>
+                <li><kbd>T</kbd><span><b>奶气回春</b> · 消耗 25 气回血</span></li>
+                <li><kbd>B</kbd><span><b>奶娃神圣降临</b> · 满气超奶一击</span></li>
+              </ul>
+            </article>
+            <article class="help-character-card help-character-card--divine">
+              <header><strong>神-奶娃</strong><span>隐藏涅槃形态</span></header>
+              <ul>
+                <li><kbd>F</kbd><span><b>焚心印</b> · 掌击并附加 30% 易伤标记</span></li>
+                <li><kbd>C</kbd><span><b>焚身冲</b> · 突进飞踢并附加焚印</span></li>
+                <li><kbd>G</kbd><span><b>静默结界</b> · 600 护盾，护盾内共回复 500</span></li>
+                <li><kbd>T</kbd><span><b>烈焰爆弹</b> · 8 发烈焰弹，每发 200 伤害</span></li>
+                <li><kbd>B</kbd><span><b>神临·天火</b> · 3000 爆发 + 5 段 500 灼烧</span></li>
+              </ul>
+            </article>
+          </div>
+          <p>
+            只有成功命中对手才会积攒奶气；连续输入 F / C / G 可衔接下一招，并逐段提高连招伤害。神-奶娃无法直接选择，
+            需使用奶娃在满奶气状态下承受致命一击，并按 J 完成涅槃。60 秒结束时，剩余体力比例更高的一方获胜。
+          </p>
+          <button class="help-primary" id="helpPrimary" type="button">记住了</button>
+        </aside>
+
+        <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+        <section class="touch-controls" id="touchControls" aria-label="触屏操作">
+          <div class="virtual-stick-wrap">
+            <div class="virtual-stick" id="virtualStick" role="group" aria-label="移动摇杆">
+              <span class="virtual-stick-ring" aria-hidden="true"></span>
+              <span class="virtual-stick-knob" id="virtualStickKnob" aria-hidden="true"></span>
+            </div>
+            <small>拖动移动 · 上推跳跃</small>
+          </div>
+          <div class="touch-actions">
+            <button class="touch-jump" data-action="jump" type="button" aria-label="跳跃">跳</button>
+            <div class="touch-skills">
+            <button data-action="light" type="button">F<small>拍肚</small></button>
+            <button data-action="heavy" type="button">C<small>弹飞</small></button>
+            <button data-action="rush" type="button">G<small>冲拳</small></button>
+            <button data-action="heal" type="button">T<small>回血</small></button>
+            <button data-action="ultimate" type="button">B<small>大笑</small></button>
+              <button class="touch-guard" data-hold="z" type="button">Z<small>格挡</small></button>
+            </div>
+          </div>
+        </section>
+
+      </main>
+
+      <footer class="page-footer">
+        <span>奶娃格斗 · 初步可玩 Demo · 本地运行</span>
+        <span>素材来自提供的角色图片与专属音频</span>
+      </footer>
+    </div>
+
+    <script src="./game.js?v=20261126-118"></script>
+  </body>
+</html>

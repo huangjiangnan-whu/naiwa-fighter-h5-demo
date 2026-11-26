@@ -1,0 +1,18 @@
+{
+  "name": "奶娃拳场",
+  "short_name": "奶娃拳场",
+  "description": "奶娃横屏格斗小游戏",
+  "start_url": "./mobile.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#171620",
+  "theme_color": "#171620",
+  "icons": [
+    {
+      "src": "./assets/characters/naiwa-guard.webp",
+      "sizes": "237x471",
+      "type": "image/png"
+    }
+  ]
+}
