@@ -1518,11 +1518,18 @@
       this.networkRole = null;
       this.networkRoom = null;
       this.networkToken = null;
+      this.networkPeer = null;
+      this.networkConnection = null;
+      this.networkConnectionTimeout = null;
+      this.networkConnectionRetries = 0;
+      this.networkRetryTimer = null;
+      this.networkJoinDeadline = 0;
       this.networkSeq = 0;
       this.networkPollAbort = null;
       this.networkSendBusy = false;
       this.networkQueuedState = null;
       this.networkMessageQueue = [];
+      this.pendingRemoteGuestActions = [];
       this.networkSendAccumulator = 0;
       this.networkReady = false;
       this.networkAwaitingStart = false;
@@ -1842,8 +1849,9 @@
       this.connectOnlineRoom("guest", code);
     }
 
-    async connectOnlineRoom(role, code) {
+    connectOnlineRoom(role, code) {
       this.disconnectNetwork();
+      this.networkJoinDeadline = Date.now() + 60000;
       this.networkRole = role;
       this.networkRoom = code;
       this.networkToken =
@@ -1859,52 +1867,215 @@
       ui.joinRoomButton.disabled = true;
       this.setOnlineStatus(role === "host" ? "正在创建房间…" : "正在加入房间…");
 
-      try {
-        const response = await fetch("./api/join", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            room: code,
-            role,
-            token: this.networkToken,
-            character: this.onlineCharacter,
-          }),
-        });
-        if (!response.ok) throw new Error(`join failed: ${response.status}`);
-        const result = await response.json();
-        this.networkCharacters = result.characters || null;
-        this.networkReady = Boolean(result.ready);
+      if (typeof Peer !== "function") {
+        this.setOnlineStatus("联机组件加载失败，请刷新页面后重试。");
+        ui.createRoomButton.disabled = false;
+        ui.joinRoomButton.disabled = false;
+        return;
+      }
+
+      const hostPeerId = `naiwa-h5-p2p-${code}-host`;
+      const peerId = role === "host" ? hostPeerId : undefined;
+      const peer = new Peer(peerId, {
+        debug: 0,
+        host: "0.peerjs.com",
+        port: 443,
+        path: "/",
+        secure: true,
+        config: {
+          iceServers: [
+            { urls: "stun:stun.l.google.com:19302" },
+            { urls: "stun:stun1.l.google.com:19302" },
+            { urls: "stun:stun.cloudflare.com:3478" },
+            { urls: "stun:stun.relay.metered.ca:80" },
+          ],
+        },
+      });
+      this.networkPeer = peer;
+      this.networkConnectionRetries = 0;
+      this.networkConnectionTimeout = window.setTimeout(() => {
+        if (peer.open || this.networkConnection?.open) return;
         this.setOnlineStatus(
-          result.ready
-            ? "双方已连接，正在开始对战…"
-            : role === "host"
-              ? `房间 ${code} 创建成功，等待好友加入…`
-              : "已连接，等待房主…",
+          "联机服务响应较慢，请重新点击创建或加入房间。",
         );
-        if (result.ready && role === "host") this.startOnlineHostMatch();
-        if (result.ready && role === "guest") this.startOnlineGuestMatch();
-        void this.pollNetworkLoop(this.networkPollAbort.signal);
-      } catch {
-        this.setOnlineStatus("联机连接失败，请检查网络后重试。");
+        ui.createRoomButton.disabled = false;
+        ui.joinRoomButton.disabled = false;
+      }, 60000);
+
+      peer.on("open", () => {
+        if (this.networkConnectionTimeout) clearTimeout(this.networkConnectionTimeout);
+        this.networkConnectionTimeout = null;
+        if (role === "host") {
+          this.setOnlineStatus(`房间 ${code} 创建成功，等待好友加入…`);
+          return;
+        }
+        this.connectGuestPeer(peer, hostPeerId);
+      });
+
+      peer.on("connection", (connection) => {
+        if (role !== "host" || this.networkConnection?.open) {
+          connection.close();
+          return;
+        }
+        this.bindNetworkConnection(connection);
+      });
+
+      peer.on("error", (error) => {
+        if (!this.networkToken) return;
+        const roomMissing = error?.type === "peer-unavailable";
+        const hostConflict = error?.type === "unavailable-id";
+        if (
+          role === "guest" &&
+          roomMissing &&
+          this.networkConnectionRetries < 3 &&
+          this.networkJoinDeadline - Date.now() > 6000
+        ) {
+          if (this.networkConnectionTimeout) clearTimeout(this.networkConnectionTimeout);
+          this.networkConnectionTimeout = null;
+          this.setOnlineStatus("房主连接仍在建立，正在自动重试…");
+          if (this.networkRetryTimer) clearTimeout(this.networkRetryTimer);
+          this.networkRetryTimer = window.setTimeout(() => {
+            this.connectGuestPeer(peer, hostPeerId);
+          }, 2200);
+          return;
+        }
+        this.setOnlineStatus(
+          roomMissing
+            ? "房间码不存在，或房主还没有在线。"
+            : hostConflict
+              ? "该房间码已被占用，请重新创建房间。"
+              : "联机连接失败，请检查网络后重试。",
+        );
         this.networkReady = false;
         ui.createRoomButton.disabled = false;
         ui.joinRoomButton.disabled = false;
+      });
+
+      peer.on("disconnected", () => {
+        if (!this.networkToken || this.networkConnection?.open) return;
+        window.setTimeout(() => {
+          if (!this.networkToken || this.networkPeer?.destroyed) return;
+          if (!this.networkPeer.disconnected) return;
+          this.networkPeer.reconnect();
+        }, 1500);
+      });
+    }
+
+    connectGuestPeer(peer, hostPeerId) {
+      if (
+        !this.networkToken ||
+        this.networkRole !== "guest" ||
+        peer.destroyed ||
+        this.networkConnection?.open
+      ) {
+        return;
       }
+      const remaining = this.networkJoinDeadline - Date.now();
+      if (this.networkConnectionRetries >= 3 || remaining <= 0) {
+        this.setOnlineStatus("暂时没有连上房主，请确认房间码正确后重试。");
+        ui.createRoomButton.disabled = false;
+        ui.joinRoomButton.disabled = false;
+        return;
+      }
+      this.networkConnectionRetries += 1;
+      const attempt = this.networkConnectionRetries;
+      this.setOnlineStatus(
+        attempt === 1 ? "正在连接房主…" : `正在重新连接房主…（${attempt}/3）`,
+      );
+      const connection = peer.connect(hostPeerId, {
+        reliable: true,
+        metadata: { role: "guest", character: this.onlineCharacter },
+      });
+      this.bindNetworkConnection(connection, true);
+      if (this.networkConnectionTimeout) clearTimeout(this.networkConnectionTimeout);
+      this.networkConnectionTimeout = window.setTimeout(() => {
+        if (connection.open || !this.networkToken) return;
+        try {
+          connection.close();
+        } catch {
+          // The connection may already be closing.
+        }
+        if (attempt < 3 && this.networkJoinDeadline - Date.now() > 5000) {
+          this.setOnlineStatus(`连接较慢，正在重试…（${attempt + 1}/3）`);
+          this.networkRetryTimer = window.setTimeout(() => {
+            this.connectGuestPeer(peer, hostPeerId);
+          }, 1800);
+        } else {
+          this.setOnlineStatus("连接超时，请确认房主仍在房间并检查网络。");
+          ui.createRoomButton.disabled = false;
+          ui.joinRoomButton.disabled = false;
+        }
+      }, Math.max(1000, Math.min(20000, remaining)));
+    }
+
+    bindNetworkConnection(connection, retryableGuest = false) {
+      let connectionOpened = false;
+      connection.on("open", () => {
+        if (!this.networkToken) {
+          connection.close();
+          return;
+        }
+        connectionOpened = true;
+        this.networkConnectionRetries = 0;
+        this.networkConnection = connection;
+        if (this.networkConnectionTimeout) clearTimeout(this.networkConnectionTimeout);
+        this.networkConnectionTimeout = null;
+        if (this.networkRole === "guest") {
+          connection.send({
+            type: "peer-hello",
+            role: "guest",
+            character: this.onlineCharacter,
+          });
+          this.setOnlineStatus("已连接房主，等待房主开始…");
+        } else {
+          this.setOnlineStatus("好友已连接，正在交换角色…");
+        }
+        this.flushNetworkQueue();
+      });
+      connection.on("data", (message) => {
+        if (!message || typeof message !== "object") return;
+        if (message.type === "peer-hello" && this.networkRole === "host") {
+          const guestCharacter = message.character === "mini" ? "mini" : "naiwa";
+          this.networkCharacters = {
+            host: this.onlineCharacter,
+            guest: guestCharacter,
+          };
+          connection.send({
+            type: "ready",
+            characters: this.networkCharacters,
+          });
+          this.networkReady = true;
+          this.startOnlineHostMatch();
+          return;
+        }
+        this.handleNetworkMessage(message);
+      });
+      connection.on("close", () => {
+        if (!this.networkToken) return;
+        this.networkConnection = null;
+        if (retryableGuest && !connectionOpened && this.networkConnectionRetries < 3) {
+          this.setOnlineStatus("连接中断，正在自动重试…");
+          return;
+        }
+        this.handleNetworkDisconnect();
+      });
+      connection.on("error", () => {
+        if (!this.networkToken) return;
+        this.setOnlineStatus("联机数据通道异常，请重新加入房间。");
+      });
     }
 
     disconnectNetwork() {
-      if (this.networkToken && this.networkRoom && this.networkRole) {
-        void fetch("./api/leave", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            room: this.networkRoom,
-            role: this.networkRole,
-            token: this.networkToken,
-          }),
-          keepalive: true,
-        }).catch(() => {});
-      }
+      if (this.networkConnectionTimeout) clearTimeout(this.networkConnectionTimeout);
+      this.networkConnectionTimeout = null;
+      if (this.networkRetryTimer) clearTimeout(this.networkRetryTimer);
+      this.networkRetryTimer = null;
+      this.networkConnectionRetries = 0;
+      this.networkJoinDeadline = 0;
+      this.networkConnection?.close();
+      this.networkConnection = null;
+      this.networkPeer?.destroy();
+      this.networkPeer = null;
       this.networkPollAbort?.abort();
       this.networkPollAbort = null;
       this.networkReady = false;
@@ -1913,6 +2084,7 @@
       this.networkSeq = 0;
       this.networkQueuedState = null;
       this.networkMessageQueue = [];
+      this.pendingRemoteGuestActions.length = 0;
       this.onlineMode = null;
       this.networkRole = null;
       this.networkRoom = null;
@@ -1925,35 +2097,19 @@
       if (!this.networkToken || !this.networkRoom) return false;
       if (message.type === "state") this.networkQueuedState = message;
       else this.networkMessageQueue.push(message);
-      void this.flushNetworkQueue();
+      this.flushNetworkQueue();
       return true;
     }
 
-    async flushNetworkQueue() {
-      if (this.networkSendBusy || !this.networkToken) return;
-      const message = this.networkMessageQueue.shift() || this.networkQueuedState;
-      if (!message) return;
-      if (message.type === "state") this.networkQueuedState = null;
-      this.networkSendBusy = true;
-      try {
-        const response = await fetch("./api/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            room: this.networkRoom,
-            role: this.networkRole,
-            token: this.networkToken,
-            message,
-          }),
-        });
-        if (response.status === 410) this.handleNetworkDisconnect();
-      } catch {
-        // The polling loop will surface a disconnected room.
-      } finally {
-        this.networkSendBusy = false;
-        if (this.networkToken && (this.networkQueuedState || this.networkMessageQueue.length)) {
-          window.setTimeout(() => void this.flushNetworkQueue(), 0);
-        }
+    flushNetworkQueue() {
+      const connection = this.networkConnection;
+      if (!connection?.open) return;
+      while (this.networkMessageQueue.length) {
+        connection.send(this.networkMessageQueue.shift());
+      }
+      if (this.networkQueuedState) {
+        connection.send(this.networkQueuedState);
+        this.networkQueuedState = null;
       }
     }
 
@@ -2093,6 +2249,10 @@
         this.showKOFinisher(message.character || "naiwa");
         return;
       }
+      if (message.type === "action-ack" && this.onlineMode === "guest") {
+        if (!message.accepted && message.reason) this.showToast(message.reason);
+        return;
+      }
       if (message.type === "peer-disconnected") {
         this.showToast(this.onlineMode === "host" ? "玩家 2 已离开房间" : "房主已离开房间");
         if (this.phase !== "menu") this.returnToLobby(true);
@@ -2105,6 +2265,7 @@
 
     startOnlineHostMatch() {
       this.onlineMode = "host";
+      this.setOnlineStatus("联机对战中");
       const hostCharacter =
         this.networkCharacters?.host === "mini" ? "mini" : "naiwa";
       const guestCharacter =
@@ -2179,7 +2340,13 @@
     }
 
     applyRemoteGuestInput(message) {
-      if (this.phase !== "playing" || this.onlineMode !== "host") return;
+      if (this.onlineMode !== "host") return;
+      if (this.phase !== "playing") {
+        if (message.kind === "action" && this.pendingRemoteGuestActions.length < 8) {
+          this.pendingRemoteGuestActions.push(message);
+        }
+        return;
+      }
       const enemy = this.enemy;
       if (message.kind === "key") {
         if (message.down) this.remoteKeys.add(message.key);
@@ -2192,9 +2359,37 @@
         return;
       }
       if (message.kind === "action") {
-        if (message.action === "ultimate") enemy.startUltimate();
-        else enemy.requestAttack(message.action);
+        let accepted = false;
+        let reason = "";
+        if (message.action === "ultimate") {
+          if (enemy.meter < MAX_METER) reason = "玩家 2：大招需要满奶气";
+          else accepted = enemy.startUltimate();
+        } else if (message.action === "heal") {
+          if (enemy.health >= enemy.maxHealth) reason = "玩家 2：血量已满";
+          else if (enemy.meter < 25) reason = "玩家 2：奶气不足，无法回血";
+          else accepted = enemy.requestAttack(message.action);
+        } else {
+          accepted = enemy.requestAttack(message.action);
+        }
+        this.sendNetwork({
+          type: "action-ack",
+          action: message.action,
+          accepted,
+          reason,
+        });
       }
+    }
+
+    drainRemoteGuestActions() {
+      if (
+        this.onlineMode !== "host" ||
+        this.phase !== "playing" ||
+        !this.pendingRemoteGuestActions.length
+      ) {
+        return;
+      }
+      const pending = this.pendingRemoteGuestActions.splice(0);
+      pending.forEach((message) => this.applyRemoteGuestInput(message));
     }
 
     serializeFighter(fighter) {
@@ -2670,6 +2865,20 @@
     performAction(action) {
       if (this.paused || this.phase !== "playing") return;
       if (this.onlineMode === "guest") {
+        const fighter = this.enemy;
+        if (action === "ultimate" && fighter.meter < MAX_METER) {
+          this.showToast("大招需要满奶气");
+          return;
+        }
+        if (action === "heal" && fighter.health >= fighter.maxHealth) {
+          this.showToast("血量已满，不需要回春");
+          return;
+        }
+        if (action === "heal" && fighter.meter < 25) {
+          this.showToast("奶气不足：回春需要 25 点");
+          return;
+        }
+        this.previewGuestAction(action);
         this.sendNetwork({ type: "input", kind: "action", action });
         return;
       }
@@ -2680,6 +2889,26 @@
       }
       if (action === "ultimate") this.player.startUltimate();
       else this.player.requestAttack(action);
+    }
+
+    previewGuestAction(action) {
+      if (!this.enemy.canAct()) return;
+      const durations =
+        this.enemy.character === "mini"
+          ? { light: 0.34, heavy: 0.6, rush: 0.5, heal: 0.8, ultimate: 6.1 }
+          : { light: 0.38, heavy: 0.67, rush: 0.56, heal: 0.8, ultimate: 6.1 };
+      const duration = durations[action];
+      if (!duration) return;
+      this.enemy.action = action;
+      this.enemy.actionTime = 0;
+      this.enemy.actionDuration = duration;
+      this.enemy.actionResolved = true;
+      const labels =
+        this.enemy.character === "mini"
+          ? { light: "戳戳！", heavy: "奶娃飞踢！", rush: "爱心奶波！", heal: "回春", ultimate: "神圣降临！" }
+          : { light: "拍肚皮！", heavy: "肚皮弹！", rush: "奶拳突进！", heal: "奶气回春", ultimate: "捧腹大笑！" };
+      this.spawnWord(this.enemy.x, this.enemy.y - 235, labels[action] || "出招！", "#ffe889", 30);
+      if (action !== "heal") audio.swing(action === "heavy");
     }
 
     toggleSound() {
@@ -5155,6 +5384,7 @@
         if (this.debugDivineSkillDemo) this.updateDivineSkillDemo(dt);
         this.roundTime = Math.max(0, this.roundTime - dt);
         if (!this.debugDivineSkillDemo && this.onlineMode !== "host") this.updateAI(dt);
+        this.drainRemoteGuestActions();
         this.player.update(dt);
         this.enemy.update(dt);
         this.separateFighters();
