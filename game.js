@@ -1504,6 +1504,7 @@
       this.divineTransitionActive = false;
       this.divineTransitionFinishing = false;
       this.divineAuraPromise = null;
+      this.criticalAssetsPromise = Promise.resolve();
       this.divineTransitionTimer = null;
       this.divineTransitionTarget = null;
       this.perfectBlock = null;
@@ -1612,12 +1613,16 @@
         }
       });
 
-      ui.startButton.addEventListener("click", () => {
+      ui.startButton.addEventListener("click", async () => {
         if (this.phase !== "menu" || ui.startButton.disabled) return;
         if (this.networkToken) this.disconnectNetwork();
+        ui.startButton.disabled = true;
+        ui.startButtonLabel.textContent = "正在装载奶气…";
         this.enterMobileLandscape();
-        this.startMatch();
         void this.warmAudioInBackground(true);
+        await this.waitForMatchAssets();
+        if (this.phase !== "menu") return;
+        this.startMatch();
       });
       ui.onlineButton.addEventListener("click", () => this.openOnlinePanel());
       ui.onlineClose.addEventListener("click", () => this.closeOnlinePanel());
@@ -2457,6 +2462,47 @@
         }
       };
       play();
+    }
+
+    async waitForMatchAssets() {
+      const timeout = (milliseconds) =>
+        new Promise((resolve) => {
+          window.setTimeout(resolve, milliseconds);
+        });
+      await Promise.race([
+        Promise.resolve(this.criticalAssetsPromise).catch(() => {}),
+        timeout(9000),
+      ]);
+
+      const track = ui.matchMusicAudio;
+      if (track.readyState < 3) {
+        await Promise.race([
+          new Promise((resolve) => {
+            let settled = false;
+            const finish = () => {
+              if (settled) return;
+              settled = true;
+              track.removeEventListener("canplay", finish);
+              track.removeEventListener("canplaythrough", finish);
+              track.removeEventListener("loadeddata", finish);
+              track.removeEventListener("error", finish);
+              resolve();
+            };
+            track.addEventListener("canplay", finish, { once: true });
+            track.addEventListener("canplaythrough", finish, { once: true });
+            track.addEventListener("loadeddata", finish, { once: true });
+            track.addEventListener("error", finish, { once: true });
+            ui.matchMusicAudio.load();
+          }),
+          timeout(7000),
+        ]);
+      }
+      if (this.phase === "menu") {
+        ui.startButton.disabled = false;
+        ui.startButtonLabel.textContent = this.debugDivineSkillDemo
+          ? "开始四技能演示"
+          : "一口奶气，正式开打";
+      }
     }
 
     resumeMatchMusic() {
@@ -6575,13 +6621,13 @@
       images[key] = key.startsWith("mini") ? miniFallback : fallback;
     }
     images.divineAura = null;
-    ui.startButton.disabled = false;
-    ui.onlineButton.disabled = false;
-    ui.startButtonLabel.textContent = "一口奶气，正式开打";
-    new NaiwaGame();
+    ui.startButton.disabled = true;
+    ui.onlineButton.disabled = true;
+    ui.startButtonLabel.textContent = "正在装载奶气…";
+    const game = new NaiwaGame();
 
     const entries = Object.entries(assetSources).filter(([key]) => key !== "divineAura");
-    void Promise.allSettled(
+    const criticalAssetsPromise = Promise.allSettled(
       entries.map(async ([key, source]) => [key, await loadImage(source)]),
     ).then((loaded) => {
       loaded.forEach((result) => {
@@ -6590,10 +6636,19 @@
           images[key] = image;
         }
       });
+      return loaded;
+    });
+    game.criticalAssetsPromise = criticalAssetsPromise;
+    void criticalAssetsPromise.finally(() => {
+      if (game.phase !== "menu") return;
+      ui.startButton.disabled = false;
+      ui.onlineButton.disabled = false;
+      ui.startButtonLabel.textContent = game.debugDivineSkillDemo
+        ? "开始四技能演示"
+        : "一口奶气，正式开打";
     });
     const preloadDivineAura = () => {
-      const game = window.__NAIWA_GAME__;
-      if (game) void game.ensureDivineAura().catch(() => {});
+      void game.ensureDivineAura().catch(() => {});
     };
     if ("requestIdleCallback" in window) {
       window.requestIdleCallback(preloadDivineAura, { timeout: 4500 });
