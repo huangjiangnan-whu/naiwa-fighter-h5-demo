@@ -1496,6 +1496,7 @@
       this.divineBarrage = null;
       this.divineForm = false;
       this.divineRebirthUsed = false;
+      this.manualRebirthHinted = false;
       this.rebirthPending = null;
       this.rebirthTimer = null;
       this.networkRebirthPending = null;
@@ -1520,10 +1521,14 @@
       this.networkToken = null;
       this.networkPeer = null;
       this.networkConnection = null;
+      this.networkStateConnection = null;
       this.networkConnectionTimeout = null;
       this.networkConnectionRetries = 0;
       this.networkRetryTimer = null;
       this.networkJoinDeadline = 0;
+      this.networkSuspended = false;
+      this.networkReconnectTimer = null;
+      this.networkHeartbeatTimer = null;
       this.networkSeq = 0;
       this.networkPollAbort = null;
       this.networkSendBusy = false;
@@ -1564,6 +1569,8 @@
       this.debugPerfectSkillStarted = false;
       this.debugRebirthPreview = this.urlParams.has("rebirth-preview");
       this.debugRebirthStarted = false;
+      this.debugHostRebirthPreview = this.urlParams.has("host-rebirth-preview");
+      this.debugHostRebirthStarted = false;
       this.debugDivineSkillDemo = this.urlParams.has("divine-skill-demo");
       this.debugDivinePreview = this.urlParams.has("divine-preview") || this.debugDivineSkillDemo;
       this.debugDivineStarted = false;
@@ -1893,6 +1900,7 @@
       });
       this.networkPeer = peer;
       this.networkConnectionRetries = 0;
+      this.networkSuspended = false;
       this.networkConnectionTimeout = window.setTimeout(() => {
         if (peer.open || this.networkConnection?.open) return;
         this.setOnlineStatus(
@@ -1913,7 +1921,16 @@
       });
 
       peer.on("connection", (connection) => {
-        if (role !== "host" || this.networkConnection?.open) {
+        if (role !== "host") {
+          connection.close();
+          return;
+        }
+        if (connection.metadata?.label === "state") {
+          if (this.networkStateConnection?.open) connection.close();
+          else this.bindNetworkStateConnection(connection);
+          return;
+        }
+        if (this.networkConnection?.open) {
           connection.close();
           return;
         }
@@ -1979,14 +1996,27 @@
       }
       this.networkConnectionRetries += 1;
       const attempt = this.networkConnectionRetries;
+      if (this.networkStateConnection) {
+        try {
+          this.networkStateConnection.close();
+        } catch {
+          // The state channel may already be closed.
+        }
+      }
+      this.networkStateConnection = null;
       this.setOnlineStatus(
         attempt === 1 ? "正在连接房主…" : `正在重新连接房主…（${attempt}/3）`,
       );
       const connection = peer.connect(hostPeerId, {
         reliable: true,
-        metadata: { role: "guest", character: this.onlineCharacter },
+        metadata: { role: "guest", character: this.onlineCharacter, label: "control" },
       });
       this.bindNetworkConnection(connection, true);
+      const stateConnection = peer.connect(hostPeerId, {
+        reliable: false,
+        metadata: { role: "guest", character: this.onlineCharacter, label: "state" },
+      });
+      this.bindNetworkStateConnection(stateConnection);
       if (this.networkConnectionTimeout) clearTimeout(this.networkConnectionTimeout);
       this.networkConnectionTimeout = window.setTimeout(() => {
         if (connection.open || !this.networkToken) return;
@@ -2017,7 +2047,19 @@
         }
         connectionOpened = true;
         this.networkConnectionRetries = 0;
+        this.networkSuspended = false;
+        if (this.networkReconnectTimer) clearTimeout(this.networkReconnectTimer);
+        this.networkReconnectTimer = null;
         this.networkConnection = connection;
+        if (this.networkHeartbeatTimer) clearInterval(this.networkHeartbeatTimer);
+        this.networkHeartbeatTimer = setInterval(() => {
+          if (!this.networkConnection?.open) return;
+          try {
+            this.networkConnection.send({ type: "ping", time: Date.now() });
+          } catch {
+            // The close handler starts the reconnect flow.
+          }
+        }, 5000);
         if (this.networkConnectionTimeout) clearTimeout(this.networkConnectionTimeout);
         this.networkConnectionTimeout = null;
         if (this.networkRole === "guest") {
@@ -2034,12 +2076,27 @@
       });
       connection.on("data", (message) => {
         if (!message || typeof message !== "object") return;
+        if (message.type === "ping") return;
         if (message.type === "peer-hello" && this.networkRole === "host") {
           const guestCharacter = message.character === "mini" ? "mini" : "naiwa";
           this.networkCharacters = {
             host: this.onlineCharacter,
             guest: guestCharacter,
           };
+          if (this.onlineMode === "host" && this.phase !== "menu") {
+            this.networkReady = true;
+            this.networkSuspended = false;
+            if (this.networkReconnectTimer) clearTimeout(this.networkReconnectTimer);
+            this.networkReconnectTimer = null;
+            connection.send({
+              type: "resume",
+              characters: this.networkCharacters,
+              state: this.createNetworkSnapshot().state,
+            });
+            this.setOnlineStatus("玩家 2 已重连，继续对战");
+            this.showToast("玩家 2 已重新连接");
+            return;
+          }
           connection.send({
             type: "ready",
             characters: this.networkCharacters,
@@ -2053,6 +2110,10 @@
       connection.on("close", () => {
         if (!this.networkToken) return;
         this.networkConnection = null;
+        if (this.onlineMode && this.phase !== "menu") {
+          this.suspendNetworkForReconnect(retryableGuest);
+          return;
+        }
         if (retryableGuest && !connectionOpened && this.networkConnectionRetries < 3) {
           this.setOnlineStatus("连接中断，正在自动重试…");
           return;
@@ -2065,15 +2126,68 @@
       });
     }
 
+    bindNetworkStateConnection(connection) {
+      connection.on("open", () => {
+        if (!this.networkToken) {
+          connection.close();
+          return;
+        }
+        this.networkStateConnection = connection;
+      });
+      connection.on("data", (message) => {
+        if (!message || typeof message !== "object") return;
+        if (message.type === "ping") return;
+        this.handleNetworkMessage(message);
+      });
+      connection.on("close", () => {
+        if (this.networkStateConnection === connection) {
+          this.networkStateConnection = null;
+        }
+      });
+    }
+
+    suspendNetworkForReconnect(retryableGuest = false) {
+      if (!this.networkToken || !this.onlineMode) return;
+      this.networkSuspended = true;
+      this.networkReady = false;
+      this.showToast("联机数据中断，正在自动重连…");
+      this.setOnlineStatus("连接中断，正在自动重连…");
+      if (this.networkHeartbeatTimer) clearInterval(this.networkHeartbeatTimer);
+      this.networkHeartbeatTimer = null;
+      if (this.networkReconnectTimer) clearTimeout(this.networkReconnectTimer);
+      this.networkReconnectTimer = window.setTimeout(() => {
+        if (!this.networkSuspended) return;
+        this.showToast("联机重连失败，已返回大厅");
+        this.disconnectNetwork();
+        this.returnToLobby(true);
+      }, 30000);
+
+      if (retryableGuest && this.networkRole === "guest" && this.networkPeer && this.networkRoom) {
+        this.networkJoinDeadline = Date.now() + 30000;
+        this.networkConnectionRetries = 0;
+        this.connectGuestPeer(
+          this.networkPeer,
+          `naiwa-h5-p2p-${this.networkRoom}-host`,
+        );
+      }
+    }
+
     disconnectNetwork() {
       if (this.networkConnectionTimeout) clearTimeout(this.networkConnectionTimeout);
       this.networkConnectionTimeout = null;
       if (this.networkRetryTimer) clearTimeout(this.networkRetryTimer);
       this.networkRetryTimer = null;
+      if (this.networkReconnectTimer) clearTimeout(this.networkReconnectTimer);
+      this.networkReconnectTimer = null;
+      if (this.networkHeartbeatTimer) clearInterval(this.networkHeartbeatTimer);
+      this.networkHeartbeatTimer = null;
       this.networkConnectionRetries = 0;
       this.networkJoinDeadline = 0;
+      this.networkSuspended = false;
       this.networkConnection?.close();
       this.networkConnection = null;
+      this.networkStateConnection?.close();
+      this.networkStateConnection = null;
       this.networkPeer?.destroy();
       this.networkPeer = null;
       this.networkPollAbort?.abort();
@@ -2108,8 +2222,14 @@
         connection.send(this.networkMessageQueue.shift());
       }
       if (this.networkQueuedState) {
-        connection.send(this.networkQueuedState);
-        this.networkQueuedState = null;
+        const stateChannel = this.networkStateConnection;
+        if (stateChannel?.open) {
+          stateChannel.send(this.networkQueuedState);
+          this.networkQueuedState = null;
+        } else {
+          connection.send(this.networkQueuedState);
+          this.networkQueuedState = null;
+        }
       }
     }
 
@@ -2147,6 +2267,7 @@
     handleNetworkDisconnect() {
       if (this.phase !== "menu") {
         this.showToast("联机连接已断开");
+        this.disconnectNetwork();
         this.returnToLobby(true);
       } else {
         this.networkReady = false;
@@ -2171,6 +2292,22 @@
           this.startOnlineHostMatch();
         } else {
           this.setOnlineStatus("双方已连接，等待房主开始对战…");
+        }
+        return;
+      }
+      if (message.type === "resume" && this.networkRole === "guest") {
+        this.networkCharacters = message.characters || this.networkCharacters;
+        this.networkReady = true;
+        this.networkSuspended = false;
+        if (this.networkReconnectTimer) clearTimeout(this.networkReconnectTimer);
+        this.networkReconnectTimer = null;
+        this.onlineMode = "guest";
+        if (this.phase === "menu") {
+          this.startOnlineGuestMatch();
+        } else {
+          this.configureOnlineNames();
+          if (message.state) this.applyNetworkSnapshot(message.state);
+          this.showToast("已重新连接房主，继续对战");
         }
         return;
       }
@@ -2337,6 +2474,7 @@
         ui.playerName.textContent = `玩家 1 · ${localPlayer.name}`;
         ui.playerNameEn.textContent = `HOST · ${localPlayer.english}`;
       }
+      this.updateSkillDock();
     }
 
     applyRemoteGuestInput(message) {
@@ -2462,9 +2600,9 @@
             ...projectile,
             owner: projectile.owner.isPlayer ? "player" : "enemy",
           })),
-          effects: this.effects.slice(-64),
-          damageFloats: this.damageFloats.slice(-20),
-          impacts: this.impacts.slice(-12),
+          effects: this.effects.slice(-24),
+          damageFloats: this.damageFloats.slice(-12),
+          impacts: this.impacts.slice(-8),
         },
       };
     }
@@ -2666,7 +2804,7 @@
         });
       await Promise.race([
         Promise.resolve(this.criticalAssetsPromise).catch(() => {}),
-        timeout(9000),
+        timeout(2500),
       ]);
 
       const track = ui.matchMusicAudio;
@@ -2689,7 +2827,7 @@
             track.addEventListener("error", finish, { once: true });
             ui.matchMusicAudio.load();
           }),
-          timeout(7000),
+          timeout(3000),
         ]);
       }
       if (this.phase === "menu") {
@@ -2812,6 +2950,19 @@
 
       if (key === "j" && this.rebirthPending) {
         this.acceptRebirth();
+        return;
+      }
+
+      if (
+        key === "j" &&
+        this.onlineMode === "host" &&
+        this.phase === "playing" &&
+        !this.divineRebirthUsed &&
+        this.getFighterCharacter(this.player) === "naiwa" &&
+        this.player.health > 0 &&
+        this.player.health <= this.player.maxHealth * 0.1 &&
+        this.triggerHostManualRebirth()
+      ) {
         return;
       }
 
@@ -2979,24 +3130,7 @@
         button.classList.toggle("is-selected", selected);
         button.setAttribute("aria-pressed", String(selected));
       });
-      ui.skillCards.forEach((card) => {
-        const move = config.moves[card.dataset.skill];
-        if (!move) return;
-        card.querySelector("strong").textContent = move.name;
-        card.querySelector("span:not(.portrait-tag)").textContent = move.detail;
-        card.querySelector(".skill-art img").src = move.art;
-      });
-      const touchLabels =
-        character === "mini"
-          ? { light: "戳戳", heavy: "飞踢", rush: "爱心", heal: "回血", ultimate: "降临" }
-          : character === "divine"
-            ? { light: "焚印", heavy: "焚冲", rush: "结界", heal: "爆弹", ultimate: "天火" }
-            : { light: "拍肚", heavy: "弹飞", rush: "冲拳", heal: "回血", ultimate: "大笑" };
-      document.querySelectorAll("#touchControls [data-action]").forEach((button) => {
-        const label = touchLabels[button.dataset.action];
-        const small = button.querySelector("small");
-        if (label && small) small.textContent = label;
-      });
+      this.updateSkillDock();
       if (playSound && audio.enabled) {
         audio.tone(character === "mini" ? 660 : 520, 0.08, {
           type: "triangle",
@@ -3051,33 +3185,33 @@
         ui.playerNameEn.textContent = "DIVINE NAIWA";
         ui.playerPortrait.src = "./assets/characters/divine-aura-v3.png";
         document.body.classList.add("divine-form-active");
-        ui.skillCards.forEach((card) => {
-          const move = DIVINE_MOVES[card.dataset.skill];
-          if (!move) return;
-          card.querySelector("strong").textContent = move.name;
-          card.querySelector("span:not(.portrait-tag)").textContent = move.detail;
-          card.querySelector(".skill-art img").src = move.art;
-        });
-        document.querySelectorAll("#touchControls [data-action]").forEach((button) => {
-          const labels = { light: "焚印", heavy: "焚冲", rush: "结界", heal: "爆弹", ultimate: "天火" };
-          const small = button.querySelector("small");
-          if (small && labels[button.dataset.action]) small.textContent = labels[button.dataset.action];
-        });
+        this.updateSkillDock();
         return;
       }
       document.body.classList.remove("divine-form-active");
       ui.playerName.textContent = config.name;
       ui.playerNameEn.textContent = config.english;
       ui.playerPortrait.src = config.portrait;
+      this.updateSkillDock();
+    }
+
+    updateSkillDock() {
+      const controlledFighter =
+        this.onlineMode === "guest" ? this.enemy : this.player;
+      const character = this.getFighterCharacter(controlledFighter);
+      const divine = character === "divine";
+      const config = CHARACTER_CONFIG[character] || CHARACTER_CONFIG.naiwa;
+      const source = divine ? DIVINE_MOVES : config.moves;
       ui.skillCards.forEach((card) => {
-        const move = config.moves[card.dataset.skill];
+        const move = source[card.dataset.skill];
         if (!move) return;
         card.querySelector("strong").textContent = move.name;
         card.querySelector("span:not(.portrait-tag)").textContent = move.detail;
         card.querySelector(".skill-art img").src = move.art;
       });
-      const touchLabels =
-        this.selectedCharacter === "mini"
+      const touchLabels = divine
+        ? { light: "焚印", heavy: "焚冲", rush: "结界", heal: "爆弹", ultimate: "天火" }
+        : character === "mini"
           ? { light: "戳戳", heavy: "飞踢", rush: "爱心", heal: "回血", ultimate: "降临" }
           : { light: "拍肚", heavy: "弹飞", rush: "冲拳", heal: "回血", ultimate: "大笑" };
       document.querySelectorAll("#touchControls [data-action]").forEach((button) => {
@@ -3132,6 +3266,7 @@
         this.player.character = this.playerCharacter || this.selectedCharacter;
       }
       this.divineRebirthUsed = false;
+      this.manualRebirthHinted = false;
       this.divineCast = null;
       this.divineBarrage = null;
       ui.divineSkillCast.hidden = true;
@@ -3237,6 +3372,33 @@
       audio.rebirthCue();
       this.syncPauseButton();
       this.rebirthTimer = window.setTimeout(() => this.failRebirth(), 1800);
+    }
+
+    isHostManualRebirthEligible() {
+      return (
+        this.onlineMode === "host" &&
+        this.networkReady &&
+        this.phase === "playing" &&
+        !this.paused &&
+        !this.ultimate &&
+        !this.divineTransitionActive &&
+        !this.divineRebirthUsed &&
+        this.getFighterCharacter(this.player) === "naiwa" &&
+        this.player.health > 0 &&
+        this.player.health <= this.player.maxHealth * 0.1
+      );
+    }
+
+    triggerHostManualRebirth() {
+      if (!this.isHostManualRebirthEligible()) return false;
+      this.keys.clear();
+      this.remoteKeys.clear();
+      this.player.action = null;
+      this.player.actionResolved = false;
+      this.player.hitStun = 0;
+      this.player.invulnerable = Math.max(this.player.invulnerable, 0.8);
+      this.startDivineTransition(this.player);
+      return true;
     }
 
     startNetworkRebirthPrompt(attacker, target, data, direction) {
@@ -3360,7 +3522,12 @@
       target.invulnerable = Math.max(target.invulnerable, 1.2);
       target.action = null;
       target.actionResolved = false;
-      if (target.isPlayer) this.updatePlayerIdentity();
+      if (target.isPlayer) {
+        this.updatePlayerIdentity();
+      } else if (this.onlineMode === "guest") {
+        this.updateSkillDock();
+        this.configureOnlineNames();
+      }
       this.flash = 0.62;
       this.shake = 28;
       this.cameraKick = 0.075;
@@ -5248,6 +5415,10 @@
 
     update(dt) {
       if (this.onlineMode === "guest") return;
+      if (this.networkSuspended && this.onlineMode) {
+        this.elapsed += dt;
+        return;
+      }
       if (this.networkRebirthPending) return;
       if (this.rebirthPending || this.divineTransitionActive) return;
       if (this.perfectBlock) {
@@ -5327,6 +5498,25 @@
       }
 
       if (this.phase === "playing") {
+        if (
+          this.debugHostRebirthPreview &&
+          this.onlineMode === "host" &&
+          !this.debugHostRebirthStarted
+        ) {
+          this.debugHostRebirthStarted = true;
+          this.player.health = Math.max(1, Math.round(this.player.maxHealth * 0.09));
+          this.player.meter = 0;
+          this.updateHUD();
+          this.showToast("测试：房主低血涅槃已就绪");
+        }
+        if (
+          this.onlineMode === "host" &&
+          !this.manualRebirthHinted &&
+          this.isHostManualRebirthEligible()
+        ) {
+          this.manualRebirthHinted = true;
+          this.showToast("房主涅槃就绪：按 J 重生");
+        }
         if (this.debugDivinePreview && !this.debugDivineStarted) {
           this.debugDivineStarted = true;
           this.divineForm = true;
@@ -5492,7 +5682,7 @@
       this.draw(time / 1000);
       if (this.onlineMode === "host" && this.networkReady) {
         this.networkSendAccumulator += rawDelta;
-        if (this.networkSendAccumulator >= 0.05) {
+        if (this.networkSendAccumulator >= 0.04) {
           this.networkSendAccumulator = 0;
           this.sendNetwork(this.createNetworkSnapshot());
         }
@@ -6869,14 +7059,16 @@
       return loaded;
     });
     game.criticalAssetsPromise = criticalAssetsPromise;
-    void criticalAssetsPromise.finally(() => {
+    const enableStartButtons = () => {
       if (game.phase !== "menu") return;
       ui.startButton.disabled = false;
       ui.onlineButton.disabled = false;
       ui.startButtonLabel.textContent = game.debugDivineSkillDemo
         ? "开始四技能演示"
         : "一口奶气，正式开打";
-    });
+    };
+    void criticalAssetsPromise.finally(enableStartButtons);
+    window.setTimeout(enableStartButtons, 3000);
     const preloadDivineAura = () => {
       void game.ensureDivineAura().catch(() => {});
     };
